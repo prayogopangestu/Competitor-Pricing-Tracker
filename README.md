@@ -13,13 +13,13 @@ The system consists of four main components:
 
 ## 🚀 Features
 
-- ✅ Real-time competitor price monitoring
-- ✅ Beautiful dashboard with price history charts (Tremor)
-- ✅ Email and Discord notifications on price changes
-- ✅ User authentication (email/password)
-- ✅ Support for complex JavaScript-heavy websites
-- ✅ Price history tracking and visualization
-- ✅ Easy-to-use CSS selector-based scraping
+- Real-time competitor price monitoring
+- Beautiful dashboard with price history charts (Tremor)
+- Email and Discord notifications on price changes
+- User authentication (email/password)
+- Support for complex JavaScript-heavy websites
+- Price history tracking and visualization
+- Easy-to-use CSS selector-based scraping
 
 ## 📋 Prerequisites
 
