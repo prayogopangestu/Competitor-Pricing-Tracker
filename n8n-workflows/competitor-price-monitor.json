@@ -1,0 +1,301 @@
+{
+  "name": "Competitor Price Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, url, \"priceSelector\", \"nameSelector\", \"imageSelector\" FROM competitors WHERE \"isActive\" = true",
+        "options": {}
+      },
+      "id": "get-competitors",
+      "name": "Get Competitors",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        450,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-batch",
+      "name": "Split in Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://scraper:3000/scrape",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.SCRAPER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $json.url }}\",\n  \"priceSelector\": \"{{ $json.priceSelector }}\",\n  \"nameSelector\": \"{{ $json.nameSelector }}\",\n  \"imageSelector\": \"{{ $json.imageSelector }}\"\n}",
+        "options": {}
+      },
+      "id": "scrape-url",
+      "name": "Scrape URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM \"priceRecords\" WHERE \"competitorId\" = '{{ $(item.json.id) }}' ORDER BY \"scrapedAt\" DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "get-last-price",
+      "name": "Get Last Price",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1050,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "price-changed",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-price-changed",
+      "name": "Check Price Changed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO \"priceRecords\" (\"competitorId\", price, currency, \"productName\", \"imageUrl\", \"rawData\", \"scrapedAt\") VALUES ('{{ $(item.json.id) }}', {{ $json.data.price }}, '{{ $json.data.currency }}', {{ $json.data.productName }}, {{ $json.data.imageUrl }}, '{{ JSON.stringify($json.data) }}', NOW())",
+        "options": {}
+      },
+      "id": "insert-price",
+      "name": "Insert New Price",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1450,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "Postgres credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"🚨 Price Change Alert!\",\n  \"embeds\": [\n    {\n      \"title\": \"{{ $('Get Competitors').item.json.name }}\",\n      \"color\": 16711680,\n      \"fields\": [\n        {\n          \"name\": \"Old Price\",\n          \"value\": \"{{ $('Get Last Price').item.json.price }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"New Price\",\n          \"value\": \"{{ $('Scrape URL').item.json.data.price }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Change\",\n          \"value\": \"{{ ($('Scrape URL').item.json.data.price - $('Get Last Price').item.json.price).toFixed(2) }}\",\n          \"inline\": true\n        }\n      ],\n      \"url\": \"{{ $('Get Competitors').item.json.url }}\",\n      \"timestamp\": \"{{ $now }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "discord-alert",
+      "name": "Send Discord Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1650,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $env.USER_EMAIL }}",
+        "subject": "=Price Change Alert - {{ $('Get Competitors').item.json.name }}",
+        "emailType": "html",
+        "message": "=<!DOCTYPE html>\n<html>\n<head>\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n        .header { background: #4a90e2; color: white; padding: 20px; text-align: center; }\n        .content { background: #f9f9f9; padding: 20px; border-radius: 5px; }\n        .price-change { font-size: 24px; font-weight: bold; margin: 20px 0; }\n        .old-price { color: #999; text-decoration: line-through; }\n        .new-price { color: #4a90e2; }\n        .button { display: inline-block; padding: 10px 20px; background: #4a90e2; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>Price Change Alert</h1>\n        </div>\n        <div class=\"content\">\n            <h2>{{ $('Get Competitors').item.json.name }}</h2>\n            <p>A price change has been detected for this competitor:</p>\n            \n            <div class=\"price-change\">\n                <span class=\"old-price\">{{ $('Get Last Price').item.json.price }}</span>\n                →\n                <span class=\"new-price\">{{ $('Scrape URL').item.json.data.price }}</span>\n            </div>\n            \n            <p><strong>Change:</strong> {{ ($('Scrape URL').item.json.data.price - $('Get Last Price').item.json.price).toFixed(2) }}</p>\n            \n            <a href=\"{{ $('Get Competitors').item.json.url }}\" class=\"button\">View Product</a>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "email-alert",
+      "name": "Send Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1650,
+        300
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "SMTP credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Competitors": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split in Batches": {
+      "main": [
+        [
+          {
+            "node": "Scrape URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape URL": {
+      "main": [
+        [
+          {
+            "node": "Get Last Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Last Price": {
+      "main": [
+        [
+          {
+            "node": "Check Price Changed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Price Changed": {
+      "main": [
+        [
+          {
+            "node": "Insert New Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert New Price": {
+      "main": [
+        [
+          {
+            "node": "Send Discord Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-15T00:00:00.000Z",
+  "versionId": "1"
+}

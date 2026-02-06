@@ -1,0 +1,99 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  name          String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  
+  competitors   Competitor[]
+  notificationSettings NotificationSetting?
+  alerts        Alert[]
+  
+  @@map("users")
+}
+
+model Competitor {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  name           String
+  url            String
+  productName    String?  @map("product_name")
+  priceSelector  String   @map("price_selector")
+  nameSelector   String?  @map("name_selector")
+  imageSelector  String?  @map("image_selector")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  priceRecords   PriceRecord[]
+  alerts         Alert[]
+  
+  @@index([userId])
+  @@map("competitors")
+}
+
+model PriceRecord {
+  id           String   @id @default(uuid())
+  competitorId String   @map("competitor_id")
+  price        Decimal  @db.Decimal(10, 2)
+  currency     String   @default("USD")
+  productName  String?  @map("product_name")
+  imageUrl     String?  @map("image_url")
+  rawData      Json?    @map("raw_data")
+  scrapedAt    DateTime @default(now()) @map("scraped_at")
+  
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  
+  @@index([competitorId])
+  @@index([scrapedAt])
+  @@map("price_records")
+}
+
+model NotificationSetting {
+  id                String   @id @default(uuid())
+  userId            String   @unique @map("user_id")
+  discordWebhookUrl String?  @map("discord_webhook_url")
+  emailEnabled      Boolean  @default(true) @map("email_enabled")
+  discordEnabled    Boolean  @default(true) @map("discord_enabled")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("notification_settings")
+}
+
+model Alert {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  competitorId   String   @map("competitor_id")
+  oldPrice       Decimal? @map("old_price") @db.Decimal(10, 2)
+  newPrice       Decimal  @map("new_price") @db.Decimal(10, 2)
+  priceChange    Decimal? @map("price_change") @db.Decimal(10, 2)
+  percentChange  Decimal? @map("percent_change") @db.Decimal(5, 2)
+  notificationType String  @map("notification_type") // 'email', 'discord', 'both'
+  status         String   @default("sent") // 'pending', 'sent', 'failed'
+  sentAt         DateTime @default(now()) @map("sent_at")
+  
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competitor     Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([competitorId])
+  @@index([sentAt])
+  @@map("alerts")
+}
